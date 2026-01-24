@@ -1,0 +1,25 @@
+{
+  "manifest_version": 2,
+  "name": "HN Karma Display",
+  "version": "1.0",
+  "description": "Displays the karma of Hacker News commenters next to their names",
+  "permissions": ["https://hacker-news.firebaseio.com/*", "activeTab"],
+  "content_scripts": [
+    {
+      "matches": ["*://news.ycombinator.com/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"]
+    }
+  ],
+  "background": {
+    "scripts": ["background.js"],
+    "persistent": false
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  }
+}

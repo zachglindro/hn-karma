@@ -1,0 +1,23 @@
+/* styles.css */
+.hn-karma {
+  margin-left: 4px;
+  font-size: 0.9em;
+  opacity: 0.7;
+  color: #828282;
+}
+
+.hn-karma:hover {
+  opacity: 1;
+}
+
+.hn-karma-load {
+  margin-left: 4px;
+  font-size: 0.9em;
+  cursor: pointer;
+  color: #828282;
+  text-decoration: underline;
+}
+
+.hn-karma-load:hover {
+  opacity: 1;
+}
