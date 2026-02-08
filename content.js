@@ -194,6 +194,14 @@
   }
 
   function sortCommentsByKarma(topLevelComments, karmaResults) {
+    // Create a map of username to karma for O(1) lookups
+    const usernameToKarmaMap = new Map();
+    karmaResults.forEach(function (result) {
+      if (result.karma !== null) {
+        usernameToKarmaMap.set(result.username, result.karma);
+      }
+    });
+
     // Create a map of comment row to karma
     const commentKarmaMap = new Map();
 
@@ -201,11 +209,9 @@
       const userLink = commentRow.querySelector("a.hnuser");
       if (userLink) {
         const username = userLink.textContent.trim();
-        const karmaResult = karmaResults.find(function (r) {
-          return r.username === username;
-        });
-        if (karmaResult && karmaResult.karma !== null) {
-          commentKarmaMap.set(commentRow, karmaResult.karma);
+        const karma = usernameToKarmaMap.get(username);
+        if (karma !== undefined) {
+          commentKarmaMap.set(commentRow, karma);
         }
       }
     });
@@ -273,26 +279,17 @@
 
     // Insert sorted comment groups back into the DOM
     commentGroups.forEach(function (commentGroup, index) {
-      commentGroup.group.forEach(function (row) {
-        if (index === 0 && row === commentGroup.group[0]) {
+      for (let i = 0; i < commentGroup.group.length; i++) {
+        const row = commentGroup.group[i];
+        if (index === 0 && i === 0) {
           // Insert the first comment group at the insertion point
           parentTable.insertBefore(row, insertionPoint);
         } else {
           // Insert subsequent rows after the previous one
-          const previousRow =
-            commentGroup.group[commentGroup.group.indexOf(row) - 1];
-          if (previousRow) {
-            parentTable.insertBefore(row, previousRow.nextSibling);
-          } else {
-            // This is the first row of a subsequent comment group
-            const lastRowOfPreviousGroup =
-              commentGroups[index - 1].group[
-                commentGroups[index - 1].group.length - 1
-              ];
-            parentTable.insertBefore(row, lastRowOfPreviousGroup.nextSibling);
-          }
+          const previousRow = i > 0 ? commentGroup.group[i - 1] : commentGroups[index - 1].group[commentGroups[index - 1].group.length - 1];
+          parentTable.insertBefore(row, previousRow.nextSibling);
         }
-      });
+      }
     });
   }
 })();
