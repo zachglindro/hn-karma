@@ -2,9 +2,6 @@
 // This script runs on Hacker News pages to display user karma next to usernames
 
 (function () {
-  // Store karma values for sorting
-  const karmaStore = new Map();
-  
   // Wait for the page to load completely
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initializeKarmaDisplay);
@@ -119,7 +116,6 @@
             if (response && response.karma !== undefined) {
               // Update the karma display with the actual value
               karmaSpan.textContent = `(${response.karma})`;
-              karmaStore.set(username, response.karma);
               resolve({ username, karma: response.karma, userLink });
             } else {
               // Hide the karma span if no data is available
@@ -255,7 +251,10 @@
 
     // Reorder the DOM
     const parentTable = topLevelComments[0]?.parentNode;
-    if (!parentTable) return;
+    if (!parentTable) {
+      console.warn('HN Karma: No parent table found for comment sorting');
+      return;
+    }
 
     // Find the insertion point (after the header row)
     let insertionPoint = null;
@@ -268,7 +267,10 @@
       }
     }
 
-    if (!insertionPoint) return;
+    if (!insertionPoint) {
+      console.warn('HN Karma: No insertion point found for comment sorting');
+      return;
+    }
 
     // Remove all comment rows from the DOM
     commentGroups.forEach(function (commentGroup) {
@@ -281,12 +283,21 @@
     commentGroups.forEach(function (commentGroup, index) {
       for (let i = 0; i < commentGroup.group.length; i++) {
         const row = commentGroup.group[i];
+        let previousRow;
+        
         if (index === 0 && i === 0) {
           // Insert the first comment group at the insertion point
           parentTable.insertBefore(row, insertionPoint);
         } else {
-          // Insert subsequent rows after the previous one
-          const previousRow = i > 0 ? commentGroup.group[i - 1] : commentGroups[index - 1].group[commentGroups[index - 1].group.length - 1];
+          // Determine the previous row to insert after
+          if (i > 0) {
+            // Not the first row in this group, use the previous row in the group
+            previousRow = commentGroup.group[i - 1];
+          } else {
+            // First row in a subsequent group, use the last row of the previous group
+            const previousGroup = commentGroups[index - 1];
+            previousRow = previousGroup.group[previousGroup.group.length - 1];
+          }
           parentTable.insertBefore(row, previousRow.nextSibling);
         }
       }
