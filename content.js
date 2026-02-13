@@ -11,6 +11,7 @@
 
   function initializeKarmaDisplay() {
     processComments();
+    addSortButton();
 
     // Set up MutationObserver to handle dynamically loaded comments
     const observer = new MutationObserver(function (mutations) {
@@ -47,6 +48,7 @@
 
       if (shouldProcess) {
         setTimeout(processComments, 100); // Small delay to ensure elements are fully loaded
+        setTimeout(addSortButton, 150); // Add sort button after comments load
       }
     });
 
@@ -55,6 +57,44 @@
       childList: true,
       subtree: true,
     });
+  }
+
+  function addSortButton() {
+    const allLinks = document.querySelectorAll(".subtext span.subline a");
+    let commentsLink = null;
+
+    // Find the link that contains "comment" in its text content (e.g., "15 comments", "17 comments")
+    for (let link of allLinks) {
+      if (link.textContent.includes("comment")) {
+        commentsLink = link;
+        break;
+      }
+    }
+
+    if (commentsLink && !document.getElementById("karma-sort-btn")) {
+      // Create the sort button
+      const sortButton = document.createElement("a");
+      sortButton.id = "karma-sort-btn";
+      sortButton.href = "#";
+      sortButton.textContent = "sort/karma";
+      sortButton.style.color = "#828282";
+
+      const separator = document.createTextNode(" | ");
+      commentsLink.parentNode.insertBefore(
+        separator,
+        commentsLink.nextSibling,
+      );
+      commentsLink.parentNode.insertBefore(
+        sortButton,
+        separator.nextSibling,
+      );
+
+      // Add click event to sort comments by karma
+      sortButton.addEventListener("click", function (e) {
+        e.preventDefault();
+        sortCommentsByKarma();
+      });
+    }
   }
 
   function processComments() {
@@ -111,6 +151,7 @@
         function (response) {
           if (response && response.karma !== undefined) {
             karmaSpan.textContent = `(${response.karma})`;
+            userLink.setAttribute("data-karma", response.karma);
           } else {
             karmaSpan.style.display = "none";
           }
@@ -158,6 +199,9 @@
               loadButton.textContent = `(${response.karma})`;
               loadButton.style.opacity = "0.8";
               loadButton.style.color = "#828282";
+
+              // Store karma value in the user link for later sorting
+              userLink.setAttribute("data-karma", response.karma);
             } else {
               loadButton.textContent = "(no data)";
               loadButton.style.opacity = "0.5";
@@ -168,5 +212,119 @@
 
       userLink.parentNode.insertBefore(loadButton, userLink.nextSibling);
     });
+  }
+
+  // Function to sort comments by karma
+  async function sortCommentsByKarma() {
+    // First, ensure all karma values are loaded
+    const commentRows = document.querySelectorAll("tr.athing.comtr");
+    const promises = [];
+
+    commentRows.forEach(function (row) {
+      const userLink = row.querySelector("a.hnuser");
+      if (userLink) {
+        const karmaAttr = userLink.getAttribute("data-karma");
+        if (!karmaAttr) {
+          // If karma is not available, fetch it
+          const username = userLink.textContent.trim();
+          if (username) {
+            const promise = new Promise((resolve) => {
+              chrome.runtime.sendMessage(
+                {
+                  action: "getKarma",
+                  username: username,
+                },
+                function (response) {
+                  if (response && response.karma !== undefined) {
+                    userLink.setAttribute("data-karma", response.karma);
+                  } else {
+                    userLink.setAttribute("data-karma", "-1"); // Default value for sorting
+                  }
+                  resolve();
+                },
+              );
+            });
+            promises.push(promise);
+          }
+        }
+      }
+    });
+
+    // Wait for all karma values to be fetched
+    if (promises.length > 0) {
+      await Promise.all(promises);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+
+    // Collect all comments with their karma values and indentation levels
+    const allComments = [];
+
+    commentRows.forEach(function (row) {
+      const userLink = row.querySelector("a.hnuser");
+
+      if (userLink) {
+        const karma = parseInt(userLink.getAttribute("data-karma")) || -1;
+
+        // Determine the indentation level
+        const indentCell = row.querySelector("td.ind");
+        let indentValue = 0;
+        if (indentCell) {
+          indentValue = parseInt(indentCell.getAttribute("indent") || "0");
+        }
+
+        allComments.push({
+          element: row,
+          karma: karma,
+          username: userLink.textContent.trim(),
+          indent: indentValue,
+          id: row.id,
+        });
+      }
+    });
+
+    // Group comments by parent-child relationships
+    const topComments = allComments.filter((comment) => comment.indent === 0);
+    topComments.sort((a, b) => b.karma - a.karma);
+
+    // Reorder the comments in the DOM
+    const commentTree = document.querySelector(".comment-tree tbody");
+    if (commentTree) {
+      const fragment = document.createDocumentFragment();
+
+      for (const topComment of topComments) {
+        fragment.appendChild(topComment.element);
+
+        const children = findAllChildren(allComments, topComment);
+        for (const child of children) {
+          fragment.appendChild(child.element);
+        }
+      }
+
+      commentTree.innerHTML = "";
+      commentTree.appendChild(fragment);
+    }
+  }
+
+  // Helper function to find all children of a given comment
+  function findAllChildren(allComments, parentComment) {
+    const children = [];
+    const parentIndent = parentComment.indent;
+    const parentIndex = allComments.indexOf(parentComment);
+
+    if (parentIndex === -1) return children;
+
+    for (let i = parentIndex + 1; i < allComments.length; i++) {
+      const current = allComments[i];
+
+      if (current.indent <= parentIndent) {
+        break;
+      }
+
+      if (current.indent === parentIndent + 1) {
+        children.push(current);
+      }
+    }
+
+    return children;
   }
 })();

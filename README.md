@@ -2,6 +2,7 @@ A browser extension that displays the karma of Hacker News commenters right next
 
 - Shows karma values for top-level commenters automatically
 - Clickable "load" option for karma in nested comments
+- Sort comments by karma with the "sort/karma" button
 - Caches karma data to minimize API calls
 - Works with dynamically loaded comments and infinite scroll
 - Minimal styling
