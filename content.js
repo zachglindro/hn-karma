@@ -84,19 +84,33 @@
       sortButton.style.color = "#828282";
 
       const separator = document.createTextNode(" | ");
+      commentsLink.parentNode.insertBefore(separator, commentsLink.nextSibling);
+      commentsLink.parentNode.insertBefore(sortButton, separator.nextSibling);
+
+      // Create progress indicator element
+      const progressIndicator = document.createElement("span");
+      progressIndicator.id = "karma-sort-progress";
+      progressIndicator.style.marginLeft = "4px";
+      progressIndicator.style.fontSize = "0.9em";
+      progressIndicator.style.display = "none";
       commentsLink.parentNode.insertBefore(
-        separator,
-        commentsLink.nextSibling,
-      );
-      commentsLink.parentNode.insertBefore(
-        sortButton,
-        separator.nextSibling,
+        progressIndicator,
+        sortButton.nextSibling,
       );
 
       // Add click event to sort comments by karma
       sortButton.addEventListener("click", function (e) {
         e.preventDefault();
-        sortCommentsByKarma();
+
+        const progressIndicator = document.getElementById(
+          "karma-sort-progress",
+        );
+        if (progressIndicator) {
+          progressIndicator.style.display = "inline";
+          progressIndicator.textContent = "(0%)";
+        }
+
+        sortCommentsByKarma(progressIndicator);
       });
     }
   }
@@ -219,10 +233,28 @@
   }
 
   // Function to sort comments by karma
-  async function sortCommentsByKarma() {
+  async function sortCommentsByKarma(progressIndicator) {
     // First, ensure all karma values are loaded
     const commentRows = document.querySelectorAll("tr.athing.comtr");
     const promises = [];
+    const totalComments = commentRows.length;
+
+    // Count how many comments need karma values to be fetched
+    let commentsToFetch = 0;
+    commentRows.forEach(function (row) {
+      const userLink = row.querySelector("a.hnuser");
+      if (userLink) {
+        const karmaAttr = userLink.getAttribute("data-karma");
+        if (!karmaAttr) {
+          const username = userLink.textContent.trim();
+          if (username) {
+            commentsToFetch++;
+          }
+        }
+      }
+    });
+
+    let processedCount = 0;
 
     commentRows.forEach(function (row) {
       const userLink = row.querySelector("a.hnuser");
@@ -244,6 +276,16 @@
                   } else {
                     userLink.setAttribute("data-karma", "-1"); // Default value for sorting
                   }
+
+                  // Update progress
+                  processedCount++;
+                  if (progressIndicator && commentsToFetch > 0) {
+                    const progressPercentage = Math.round(
+                      (processedCount / commentsToFetch) * 100,
+                    );
+                    progressIndicator.textContent = `(${progressPercentage}%)`;
+                  }
+
                   resolve();
                 },
               );
@@ -253,6 +295,11 @@
         }
       }
     });
+
+    // If no comments need to fetch karma, update progress to 100%
+    if (commentsToFetch === 0 && progressIndicator) {
+      progressIndicator.textContent = "(100%)";
+    }
 
     // Wait for all karma values to be fetched
     if (promises.length > 0) {
@@ -306,6 +353,15 @@
 
       commentTree.innerHTML = "";
       commentTree.appendChild(fragment);
+    }
+
+    if (progressIndicator) {
+      progressIndicator.textContent = "✓";
+
+      // Hide the indicator after a short delay
+      setTimeout(() => {
+        progressIndicator.style.display = "none";
+      }, 2000);
     }
   }
 
