@@ -10,7 +10,6 @@
   }
 
   function initializeKarmaDisplay() {
-    // Process existing comments on page load
     processComments();
 
     // Set up MutationObserver to handle dynamically loaded comments
@@ -101,7 +100,6 @@
       karmaSpan.style.opacity = "0.8";
       karmaSpan.textContent = `(${username}'s karma)`; // Placeholder text
 
-      // Insert the karma span after the username link
       userLink.parentNode.insertBefore(karmaSpan, userLink.nextSibling);
 
       // Request karma data from background script
@@ -112,10 +110,8 @@
         },
         function (response) {
           if (response && response.karma !== undefined) {
-            // Update the karma display with the actual value
             karmaSpan.textContent = `(${response.karma})`;
           } else {
-            // Hide the karma span if no data is available
             karmaSpan.style.display = "none";
           }
         },
@@ -125,13 +121,10 @@
     // Process child comments
     childUserLinks.forEach(function (userLink) {
       const username = userLink.textContent.trim();
-
-      // Skip if we've already processed this user or if it's empty
       if (!username || userLink.getAttribute("data-child-karma-checked")) {
         return;
       }
 
-      // Mark as checked to prevent duplicate processing
       userLink.setAttribute("data-child-karma-checked", "true");
 
       // Create a clickable "load" button to fetch karma
@@ -166,7 +159,6 @@
               loadButton.style.opacity = "0.8";
               loadButton.style.color = "#828282";
             } else {
-              // Show error message if no data is available
               loadButton.textContent = "(no data)";
               loadButton.style.opacity = "0.5";
             }
@@ -174,7 +166,6 @@
         );
       });
 
-      // Insert the load button after the username link
       userLink.parentNode.insertBefore(loadButton, userLink.nextSibling);
     });
   }
