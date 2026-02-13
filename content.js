@@ -315,87 +315,19 @@
   }
 
   // Function to sort comments by karma
-  async function sortCommentsByKarma(progressIndicator) {
+  function sortCommentsByKarma(progressIndicator) {
     // First, ensure all karma values are loaded
     const commentRows = document.querySelectorAll("tr.athing.comtr");
-    const promises = [];
     const totalComments = commentRows.length;
 
-    // Count how many comments need karma values to be fetched
-    let commentsToFetch = 0;
     commentRows.forEach(function (row) {
       const userLink = row.querySelector("a.hnuser");
       if (userLink) {
         const karmaAttr = userLink.getAttribute("data-karma");
-        if (!karmaAttr) {
-          const username = userLink.textContent.trim();
-          if (username) {
-            commentsToFetch++;
-          }
-        }
       }
     });
 
-    let processedCount = 0;
-
-    commentRows.forEach(function (row) {
-      const userLink = row.querySelector("a.hnuser");
-      if (userLink) {
-        const karmaAttr = userLink.getAttribute("data-karma");
-        if (!karmaAttr) {
-          // If karma is not available, fetch it
-          const username = userLink.textContent.trim();
-          if (username) {
-            pendingKarmaRequests++;
-            allKarmaLoaded = false;
-
-            const promise = new Promise((resolve) => {
-              chrome.runtime.sendMessage(
-                {
-                  action: "getKarma",
-                  username: username,
-                },
-                function (response) {
-                  if (response && response.karma !== undefined) {
-                    userLink.setAttribute("data-karma", response.karma);
-                  } else {
-                    userLink.setAttribute("data-karma", "-1"); // Default value for sorting
-                  }
-
-                  // Update progress
-                  processedCount++;
-                  if (progressIndicator && commentsToFetch > 0) {
-                    const progressPercentage = Math.round(
-                      (processedCount / commentsToFetch) * 100,
-                    );
-                    progressIndicator.textContent = `(${progressPercentage}%)`;
-                  }
-
-                  pendingKarmaRequests--;
-                  if (pendingKarmaRequests <= 0) {
-                    allKarmaLoaded = true;
-                  }
-
-                  resolve();
-                },
-              );
-            });
-            promises.push(promise);
-          }
-        }
-      }
-    });
-
-    // If no comments need to fetch karma, update progress to 100%
-    if (commentsToFetch === 0 && progressIndicator) {
-      progressIndicator.textContent = "(100%)";
-    }
-
-    // Wait for all karma values to be fetched
-    if (promises.length > 0) {
-      await Promise.all(promises);
-      await new Promise((resolve) => setTimeout(resolve, 200));
-    }
+    // Skip progress indicator and go directly to checkmark
 
     // Collect all comments with their karma values and indentation levels
     const allComments = [];
