@@ -1,6 +1,6 @@
 {
   "manifest_version": 2,
-  "name": "HN Karma Display",
+  "name": "Hacker News Karma",
   "version": "1.0",
   "description": "Displays the karma of Hacker News commenters next to their names",
   "permissions": ["https://hacker-news.firebaseio.com/*", "activeTab"],
