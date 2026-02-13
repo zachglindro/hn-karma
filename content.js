@@ -60,6 +60,10 @@
   }
 
   function addSortButton() {
+    if (!window.location.href.includes("item?id=")) {
+      return;
+    }
+
     const allLinks = document.querySelectorAll(".subtext span.subline a");
     let commentsLink = null;
 
