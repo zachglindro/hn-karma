@@ -2,6 +2,10 @@
 // This script runs on Hacker News pages to display user karma next to usernames
 
 (function () {
+  // Counter to track pending karma requests
+  let pendingKarmaRequests = 0;
+  let allKarmaLoaded = false;
+
   // Wait for the page to load completely
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initializeKarmaDisplay);
@@ -11,7 +15,12 @@
 
   function initializeKarmaDisplay() {
     processComments();
-    addSortButton();
+
+    if (allKarmaLoaded) {
+      addSortButton();
+    } else if (pendingKarmaRequests > 0) {
+      showKarmaLoadingIndicator();
+    }
 
     // Set up MutationObserver to handle dynamically loaded comments
     const observer = new MutationObserver(function (mutations) {
@@ -48,7 +57,12 @@
 
       if (shouldProcess) {
         setTimeout(processComments, 100); // Small delay to ensure elements are fully loaded
-        setTimeout(addSortButton, 150); // Add sort button after comments load
+
+        if (allKarmaLoaded) {
+          setTimeout(addSortButton, 150);
+        } else if (pendingKarmaRequests > 0) {
+          showKarmaLoadingIndicator();
+        }
       }
     });
 
@@ -57,6 +71,56 @@
       childList: true,
       subtree: true,
     });
+  }
+
+  // Function to show a loading indicator when karma is being fetched
+  function showKarmaLoadingIndicator() {
+    const allLinks = document.querySelectorAll(".subtext span.subline a");
+    let commentsLink = null;
+
+    // Find the link that contains "comment" in its text content (e.g., "15 comments", "17 comments")
+    for (let link of allLinks) {
+      if (link.textContent.includes("comment")) {
+        commentsLink = link;
+        break;
+      }
+    }
+
+    if (commentsLink) {
+      let loadingIndicator = document.getElementById("karma-loading-indicator");
+
+      // Create a loading indicator if it doesn't exist
+      if (!loadingIndicator) {
+        loadingIndicator = document.createElement("span");
+        loadingIndicator.id = "karma-loading-indicator";
+        loadingIndicator.style.marginLeft = "4px";
+        loadingIndicator.style.fontSize = "0.9em";
+        loadingIndicator.style.color = "#828282";
+
+        commentsLink.parentNode.insertBefore(
+          loadingIndicator,
+          commentsLink.nextSibling,
+        );
+      }
+
+      loadingIndicator.textContent = `(loading karma... ${pendingKarmaRequests})`;
+
+      // Remove the loading indicator when all karma is loaded
+      const checkAndRemoveIndicator = setInterval(() => {
+        if (allKarmaLoaded && pendingKarmaRequests <= 0) {
+          clearInterval(checkAndRemoveIndicator);
+          const indicator = document.getElementById("karma-loading-indicator");
+          if (indicator) {
+            indicator.remove();
+          }
+        } else {
+          const indicator = document.getElementById("karma-loading-indicator");
+          if (indicator) {
+            indicator.textContent = `(loading karma... ${pendingKarmaRequests})`;
+          }
+        }
+      }, 100);
+    }
   }
 
   function addSortButton() {
@@ -149,6 +213,9 @@
 
       userLink.setAttribute("data-karma-checked", "true");
 
+      pendingKarmaRequests++;
+      allKarmaLoaded = false;
+
       // Create a temporary element to hold the karma info
       // We'll update it later when we get the karma data
       const karmaSpan = document.createElement("span");
@@ -172,6 +239,12 @@
             userLink.setAttribute("data-karma", response.karma);
           } else {
             karmaSpan.style.display = "none";
+          }
+
+          pendingKarmaRequests--;
+          if (pendingKarmaRequests <= 0) {
+            allKarmaLoaded = true;
+            addSortButton();
           }
         },
       );
@@ -205,6 +278,9 @@
         loadButton.style.cursor = "default";
         loadButton.style.textDecoration = "none";
 
+        pendingKarmaRequests++;
+        allKarmaLoaded = false;
+
         // Request karma data from background script
         chrome.runtime.sendMessage(
           {
@@ -223,6 +299,12 @@
             } else {
               loadButton.textContent = "(no data)";
               loadButton.style.opacity = "0.5";
+            }
+
+            pendingKarmaRequests--;
+            if (pendingKarmaRequests <= 0) {
+              allKarmaLoaded = true;
+              addSortButton();
             }
           },
         );
@@ -264,6 +346,9 @@
           // If karma is not available, fetch it
           const username = userLink.textContent.trim();
           if (username) {
+            pendingKarmaRequests++;
+            allKarmaLoaded = false;
+
             const promise = new Promise((resolve) => {
               chrome.runtime.sendMessage(
                 {
@@ -284,6 +369,11 @@
                       (processedCount / commentsToFetch) * 100,
                     );
                     progressIndicator.textContent = `(${progressPercentage}%)`;
+                  }
+
+                  pendingKarmaRequests--;
+                  if (pendingKarmaRequests <= 0) {
+                    allKarmaLoaded = true;
                   }
 
                   resolve();
