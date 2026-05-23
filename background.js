@@ -25,8 +25,8 @@ async function getUserKarma(username) {
   if (karmaCache.has(username)) {
     const cachedData = karmaCache.get(username);
 
-    // Return cached data if it's less than 5 minutes old
-    if (Date.now() - cachedData.timestamp < 5 * 60 * 1000) {
+    // Return cached data if it's less than 24 hours (1 day) old
+    if (Date.now() - cachedData.timestamp < 24 * 60 * 60 * 1000) {
       return cachedData.karma;
     }
   }
@@ -62,12 +62,16 @@ async function getUserKarma(username) {
 }
 
 // Clean up cache periodically to prevent memory leaks
-setInterval(() => {
-  const now = Date.now();
-  for (const [username, data] of karmaCache.entries()) {
-    // Remove entries older than 10 minutes
-    if (now - data.timestamp > 10 * 60 * 1000) {
-      karmaCache.delete(username);
+// Remove entries older than 24 hours; run cleanup hourly
+setInterval(
+  () => {
+    const now = Date.now();
+    for (const [username, data] of karmaCache.entries()) {
+      // Remove entries older than 24 hours (1 day)
+      if (now - data.timestamp > 24 * 60 * 60 * 1000) {
+        karmaCache.delete(username);
+      }
     }
-  }
-}, 60 * 1000); // Run cleanup every minute
+  },
+  60 * 60 * 1000,
+); // Run cleanup every hour
