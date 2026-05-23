@@ -5,6 +5,8 @@
   // Counter to track pending karma requests
   let pendingKarmaRequests = 0;
   let allKarmaLoaded = false;
+  let isPostsScoreSorted = false;
+  let originalPostOrder = [];
 
   // Wait for the page to load completely
   if (document.readyState === "loading") {
@@ -15,9 +17,11 @@
 
   function initializeKarmaDisplay() {
     processComments();
+    processPosts();
+    addPostSortButton();
 
     if (allKarmaLoaded) {
-      addSortButton();
+      addSortButtons();
     } else if (pendingKarmaRequests > 0) {
       showKarmaLoadingIndicator();
     }
@@ -34,18 +38,25 @@
               if (
                 node.classList &&
                 (node.classList.contains("comment") ||
-                  node.classList.contains("comtr"))
+                  node.classList.contains("comtr") ||
+                  node.classList.contains("submission"))
               ) {
                 // Check if this is a top-level comment (indent="0")
                 const indentElement = node.querySelector
                   ? node.querySelector('td.ind[indent="0"]')
                   : null;
-                if (indentElement) {
+                if (
+                  indentElement ||
+                  node.classList.contains("submission") ||
+                  (node.classList.contains("athing") &&
+                    node.classList.contains("submission"))
+                ) {
                   shouldProcess = true;
                 }
               } else if (
                 node.querySelector &&
-                node.querySelector('tr.athing.comtr td.ind[indent="0"]')
+                (node.querySelector('tr.athing.comtr td.ind[indent="0"]') ||
+                  node.querySelector("tr.athing.submission"))
               ) {
                 // Also check if the added node contains a top-level comment
                 shouldProcess = true;
@@ -56,10 +67,14 @@
       });
 
       if (shouldProcess) {
-        setTimeout(processComments, 100); // Small delay to ensure elements are fully loaded
+        setTimeout(function () {
+          processComments();
+          processPosts();
+          addPostSortButton();
+        }, 100); // Small delay to ensure elements are fully loaded
 
         if (allKarmaLoaded) {
-          setTimeout(addSortButton, 150);
+          setTimeout(addSortButtons, 150);
         } else if (pendingKarmaRequests > 0) {
           showKarmaLoadingIndicator();
         }
@@ -123,7 +138,12 @@
     }
   }
 
-  function addSortButton() {
+  function addSortButtons() {
+    addCommentSortButton();
+    addPostSortButton();
+  }
+
+  function addCommentSortButton() {
     if (!window.location.href.includes("item?id=")) {
       return;
     }
@@ -177,6 +197,105 @@
         sortCommentsByKarma(progressIndicator);
       });
     }
+  }
+
+  function addPostSortButton() {
+    if (window.location.href.includes("item?id=")) {
+      return;
+    }
+
+    const existingControls = document.getElementById(
+      "score-post-sort-controls",
+    );
+    if (existingControls) {
+      positionPostSortControls();
+      return;
+    }
+
+    const firstPostSubline = document.querySelector(
+      "tr.athing.submission + tr .subtext .subline",
+    );
+    if (!firstPostSubline) {
+      return;
+    }
+
+    const firstCommentsLink = Array.from(
+      firstPostSubline.querySelectorAll("a"),
+    ).find(function (link) {
+      return /comment|discuss/i.test(link.textContent || "");
+    });
+
+    if (!firstCommentsLink) {
+      return;
+    }
+
+    const controls = document.createElement("span");
+    controls.id = "score-post-sort-controls";
+
+    const separator = document.createTextNode(" | ");
+    controls.appendChild(separator);
+
+    const sortButton = document.createElement("a");
+    sortButton.id = "score-post-sort-btn";
+    sortButton.href = "#";
+    sortButton.textContent = "sort/score";
+    sortButton.style.color = "#828282";
+    controls.appendChild(sortButton);
+
+    const progressIndicator = document.createElement("span");
+    progressIndicator.id = "score-post-sort-progress";
+    progressIndicator.style.marginLeft = "4px";
+    progressIndicator.style.fontSize = "0.9em";
+    progressIndicator.style.display = "none";
+    controls.appendChild(progressIndicator);
+
+    firstCommentsLink.parentNode.insertBefore(
+      controls,
+      firstCommentsLink.nextSibling,
+    );
+
+    sortButton.addEventListener("click", function (e) {
+      e.preventDefault();
+
+      const indicator = document.getElementById("score-post-sort-progress");
+      if (indicator) {
+        indicator.style.display = "inline";
+        indicator.textContent = "(...)";
+      }
+
+      togglePostSortByScore(indicator, sortButton);
+    });
+
+    positionPostSortControls();
+  }
+
+  function positionPostSortControls() {
+    const controls = document.getElementById("score-post-sort-controls");
+    if (!controls) {
+      return;
+    }
+
+    const firstPostSubline = document.querySelector(
+      "tr.athing.submission + tr .subtext .subline",
+    );
+    if (!firstPostSubline) {
+      return;
+    }
+
+    const firstCommentsLink = Array.from(
+      firstPostSubline.querySelectorAll("a"),
+    ).find(function (link) {
+      return /comment|discuss/i.test(link.textContent || "");
+    });
+
+    if (!firstCommentsLink) {
+      return;
+    }
+
+    firstCommentsLink.parentNode.insertBefore(
+      controls,
+      firstCommentsLink.nextSibling,
+    );
   }
 
   function processComments() {
@@ -244,7 +363,7 @@
           pendingKarmaRequests--;
           if (pendingKarmaRequests <= 0) {
             allKarmaLoaded = true;
-            addSortButton();
+            addSortButtons();
           }
         },
       );
@@ -304,13 +423,72 @@
             pendingKarmaRequests--;
             if (pendingKarmaRequests <= 0) {
               allKarmaLoaded = true;
-              addSortButton();
+              addSortButtons();
             }
           },
         );
       });
 
       userLink.parentNode.insertBefore(loadButton, userLink.nextSibling);
+    });
+  }
+
+  function processPosts() {
+    const submissionRows = document.querySelectorAll("tr.athing.submission");
+    if (!submissionRows.length) {
+      return;
+    }
+
+    submissionRows.forEach(function (submissionRow) {
+      const subtextRow = submissionRow.nextElementSibling;
+      if (!subtextRow) {
+        return;
+      }
+
+      const userLink = subtextRow.querySelector("a.hnuser");
+      if (!userLink) {
+        return;
+      }
+
+      const username = userLink.textContent.trim();
+      if (!username || userLink.getAttribute("data-post-karma-checked")) {
+        return;
+      }
+
+      userLink.setAttribute("data-post-karma-checked", "true");
+
+      pendingKarmaRequests++;
+      allKarmaLoaded = false;
+
+      const karmaSpan = document.createElement("span");
+      karmaSpan.className = "hn-karma";
+      karmaSpan.style.marginLeft = "4px";
+      karmaSpan.style.fontSize = "0.9em";
+      karmaSpan.style.opacity = "0.8";
+      karmaSpan.textContent = `(${username}'s karma)`;
+
+      userLink.parentNode.insertBefore(karmaSpan, userLink.nextSibling);
+
+      chrome.runtime.sendMessage(
+        {
+          action: "getKarma",
+          username: username,
+        },
+        function (response) {
+          if (response && response.karma !== undefined) {
+            karmaSpan.textContent = `(${response.karma})`;
+            userLink.setAttribute("data-karma", response.karma);
+          } else {
+            karmaSpan.style.display = "none";
+          }
+
+          pendingKarmaRequests--;
+          if (pendingKarmaRequests <= 0) {
+            allKarmaLoaded = true;
+            addSortButtons();
+          }
+        },
+      );
     });
   }
 
@@ -385,6 +563,131 @@
         progressIndicator.style.display = "none";
       }, 2000);
     }
+  }
+
+  function togglePostSortByScore(progressIndicator, sortButton) {
+    if (isPostsScoreSorted) {
+      restoreOriginalPostOrder();
+      isPostsScoreSorted = false;
+      sortButton.textContent = "sort/score";
+    } else {
+      sortPostsByScore();
+      isPostsScoreSorted = true;
+      sortButton.textContent = "unsort/score";
+    }
+
+    if (progressIndicator) {
+      progressIndicator.textContent = "✓";
+      setTimeout(function () {
+        progressIndicator.style.display = "none";
+      }, 1200);
+    }
+  }
+
+  function sortPostsByScore() {
+    const postGroups = getPostGroups();
+    if (!postGroups.length) {
+      return;
+    }
+
+    if (!originalPostOrder.length) {
+      originalPostOrder = postGroups.map(function (group) {
+        return group.id;
+      });
+    }
+
+    postGroups.sort(function (a, b) {
+      return b.score - a.score;
+    });
+
+    applyPostOrder(postGroups);
+  }
+
+  function restoreOriginalPostOrder() {
+    if (!originalPostOrder.length) {
+      return;
+    }
+
+    const postGroups = getPostGroups();
+    const groupsById = new Map();
+
+    postGroups.forEach(function (group) {
+      groupsById.set(group.id, group);
+    });
+
+    const orderedGroups = [];
+
+    originalPostOrder.forEach(function (id) {
+      if (groupsById.has(id)) {
+        orderedGroups.push(groupsById.get(id));
+        groupsById.delete(id);
+      }
+    });
+
+    groupsById.forEach(function (group) {
+      orderedGroups.push(group);
+    });
+
+    applyPostOrder(orderedGroups);
+  }
+
+  function getPostGroups() {
+    const submissionRows = Array.from(
+      document.querySelectorAll("tr.athing.submission"),
+    );
+
+    return submissionRows
+      .map(function (submissionRow) {
+        const subtextRow = submissionRow.nextElementSibling;
+        const spacerCandidate = subtextRow
+          ? subtextRow.nextElementSibling
+          : null;
+        const spacerRow =
+          spacerCandidate && spacerCandidate.classList.contains("spacer")
+            ? spacerCandidate
+            : null;
+
+        const scoreSpan = subtextRow
+          ? subtextRow.querySelector("span.score")
+          : null;
+        let score = -1;
+        if (scoreSpan) {
+          const parsedScore = parseInt(scoreSpan.textContent, 10);
+          score = Number.isNaN(parsedScore) ? -1 : parsedScore;
+        }
+
+        return {
+          id: submissionRow.id,
+          row: submissionRow,
+          subtextRow: subtextRow,
+          spacerRow: spacerRow,
+          score: score,
+        };
+      })
+      .filter(function (group) {
+        return !!group.subtextRow;
+      });
+  }
+
+  function applyPostOrder(postGroups) {
+    if (!postGroups.length) {
+      return;
+    }
+
+    const parent = postGroups[0].row.parentNode;
+    const insertionAnchor = parent.querySelector("tr.morespace");
+    const fragment = document.createDocumentFragment();
+
+    postGroups.forEach(function (group) {
+      fragment.appendChild(group.row);
+      fragment.appendChild(group.subtextRow);
+      if (group.spacerRow) {
+        fragment.appendChild(group.spacerRow);
+      }
+    });
+
+    parent.insertBefore(fragment, insertionAnchor || null);
+    positionPostSortControls();
   }
 
   // Helper function to find all children of a given comment
