@@ -17,7 +17,6 @@
 
   function initializeKarmaDisplay() {
     processComments();
-    processPosts();
     addPostSortButton();
 
     if (allKarmaLoaded) {
@@ -69,7 +68,6 @@
       if (shouldProcess) {
         setTimeout(function () {
           processComments();
-          processPosts();
           addPostSortButton();
         }, 100); // Small delay to ensure elements are fully loaded
 
@@ -430,65 +428,6 @@
       });
 
       userLink.parentNode.insertBefore(loadButton, userLink.nextSibling);
-    });
-  }
-
-  function processPosts() {
-    const submissionRows = document.querySelectorAll("tr.athing.submission");
-    if (!submissionRows.length) {
-      return;
-    }
-
-    submissionRows.forEach(function (submissionRow) {
-      const subtextRow = submissionRow.nextElementSibling;
-      if (!subtextRow) {
-        return;
-      }
-
-      const userLink = subtextRow.querySelector("a.hnuser");
-      if (!userLink) {
-        return;
-      }
-
-      const username = userLink.textContent.trim();
-      if (!username || userLink.getAttribute("data-post-karma-checked")) {
-        return;
-      }
-
-      userLink.setAttribute("data-post-karma-checked", "true");
-
-      pendingKarmaRequests++;
-      allKarmaLoaded = false;
-
-      const karmaSpan = document.createElement("span");
-      karmaSpan.className = "hn-karma";
-      karmaSpan.style.marginLeft = "4px";
-      karmaSpan.style.fontSize = "0.9em";
-      karmaSpan.style.opacity = "0.8";
-      karmaSpan.textContent = `(${username}'s karma)`;
-
-      userLink.parentNode.insertBefore(karmaSpan, userLink.nextSibling);
-
-      chrome.runtime.sendMessage(
-        {
-          action: "getKarma",
-          username: username,
-        },
-        function (response) {
-          if (response && response.karma !== undefined) {
-            karmaSpan.textContent = `(${response.karma})`;
-            userLink.setAttribute("data-karma", response.karma);
-          } else {
-            karmaSpan.style.display = "none";
-          }
-
-          pendingKarmaRequests--;
-          if (pendingKarmaRequests <= 0) {
-            allKarmaLoaded = true;
-            addSortButtons();
-          }
-        },
-      );
     });
   }
 
