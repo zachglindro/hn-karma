@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Hacker News Karma",
-  "version": "1.2",
+  "version": "1.3",
   "description": "Displays the karma of Hacker News commenters next to their names",
   "permissions": ["https://hacker-news.firebaseio.com/*", "activeTab"],
   "content_scripts": [
