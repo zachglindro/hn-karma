@@ -4,6 +4,8 @@
 (function () {
   let pendingKarmaRequests = 0;
   let allKarmaLoaded = false;
+  let isCommentsKarmaSorted = false;
+  let originalCommentOrder = [];
   let isPostsScoreSorted = false;
   let originalPostOrder = [];
 
@@ -268,7 +270,7 @@
       const sortButton = document.createElement("a");
       sortButton.id = "karma-sort-btn";
       sortButton.href = "#";
-      sortButton.textContent = "sort/karma";
+      sortButton.textContent = isCommentsKarmaSorted ? "unsort/karma" : "sort/karma";
       sortButton.style.color = "#828282";
 
       const separator = document.createTextNode(" | ");
@@ -291,8 +293,105 @@
           progressIndicator.style.display = "inline";
           progressIndicator.textContent = "(...)";
         }
-        sortCommentsByKarma(progressIndicator);
+        toggleCommentSortByKarma(progressIndicator, sortButton);
       });
+    }
+  }
+
+  function toggleCommentSortByKarma(progressIndicator, sortButton) {
+    if (isCommentsKarmaSorted) {
+      restoreOriginalCommentOrder();
+      isCommentsKarmaSorted = false;
+      sortButton.textContent = "sort/karma";
+    } else {
+      sortCommentsByKarma();
+      isCommentsKarmaSorted = true;
+      sortButton.textContent = "unsort/karma";
+    }
+
+    if (progressIndicator) {
+      progressIndicator.textContent = "✓";
+      setTimeout(function () {
+        progressIndicator.style.display = "none";
+      }, 1200);
+    }
+  }
+
+  function restoreOriginalCommentOrder() {
+    if (!originalCommentOrder.length) return;
+
+    const commentRows = Array.from(document.querySelectorAll("tr.athing.comtr"));
+    const rowsById = new Map();
+    commentRows.forEach((row) => rowsById.set(row.id, row));
+
+    const commentTree =
+      document.querySelector(".comment-tree tbody") ||
+      document.querySelector(".comment-tree");
+    if (!commentTree) return;
+
+    const fragment = document.createDocumentFragment();
+    originalCommentOrder.forEach((id) => {
+      if (rowsById.has(id)) {
+        fragment.appendChild(rowsById.get(id));
+        rowsById.delete(id);
+      }
+    });
+
+    // In case any new row was added dynamically
+    rowsById.forEach((row) => {
+      fragment.appendChild(row);
+    });
+
+    commentTree.innerHTML = "";
+    commentTree.appendChild(fragment);
+  }
+
+  function sortCommentsByKarma() {
+    const commentRows = Array.from(document.querySelectorAll("tr.athing.comtr"));
+    if (!commentRows.length) return;
+
+    if (!originalCommentOrder.length) {
+      originalCommentOrder = commentRows.map((row) => row.id);
+    }
+
+    const allComments = [];
+
+    commentRows.forEach(function (row) {
+      const userLink = row.querySelector('.comhead a[href^="user?id="]');
+      const karma = userLink
+        ? parseInt(userLink.getAttribute("data-karma"), 10) || -1
+        : -1;
+      const indentCell = row.querySelector("td.ind");
+      let indentValue = 0;
+      if (indentCell) {
+        indentValue = parseInt(indentCell.getAttribute("indent") || "0", 10);
+      }
+
+      allComments.push({
+        element: row,
+        karma: karma,
+        indent: indentValue,
+        id: row.id,
+      });
+    });
+
+    const topComments = allComments.filter((c) => c.indent === 0);
+    topComments.sort((a, b) => b.karma - a.karma);
+
+    const commentTree =
+      document.querySelector(".comment-tree tbody") ||
+      document.querySelector(".comment-tree");
+    if (commentTree) {
+      const fragment = document.createDocumentFragment();
+      for (const topComment of topComments) {
+        fragment.appendChild(topComment.element);
+        const children = findAllChildren(allComments, topComment);
+        for (const child of children) {
+          fragment.appendChild(child.element);
+        }
+      }
+      commentTree.innerHTML = "";
+      commentTree.appendChild(fragment);
     }
   }
 
@@ -365,54 +464,6 @@
     if (!firstCommentsLink) return;
 
     firstCommentsLink.parentNode.insertBefore(controls, firstCommentsLink.nextSibling);
-  }
-
-  function sortCommentsByKarma(progressIndicator) {
-    const commentRows = document.querySelectorAll("tr.athing.comtr");
-    const allComments = [];
-
-    commentRows.forEach(function (row) {
-      const userLink = row.querySelector('.comhead a[href^="user?id="]');
-      if (userLink) {
-        const karma = parseInt(userLink.getAttribute("data-karma"), 10) || -1;
-        const indentCell = row.querySelector("td.ind");
-        let indentValue = 0;
-        if (indentCell) {
-          indentValue = parseInt(indentCell.getAttribute("indent") || "0", 10);
-        }
-
-        allComments.push({
-          element: row,
-          karma: karma,
-          indent: indentValue,
-          id: row.id,
-        });
-      }
-    });
-
-    const topComments = allComments.filter((c) => c.indent === 0);
-    topComments.sort((a, b) => b.karma - a.karma);
-
-    const commentTree = document.querySelector(".comment-tree tbody");
-    if (commentTree) {
-      const fragment = document.createDocumentFragment();
-      for (const topComment of topComments) {
-        fragment.appendChild(topComment.element);
-        const children = findAllChildren(allComments, topComment);
-        for (const child of children) {
-          fragment.appendChild(child.element);
-        }
-      }
-      commentTree.innerHTML = "";
-      commentTree.appendChild(fragment);
-    }
-
-    if (progressIndicator) {
-      progressIndicator.textContent = "✓";
-      setTimeout(() => {
-        progressIndicator.style.display = "none";
-      }, 2000);
-    }
   }
 
   function togglePostSortByScore(progressIndicator, sortButton) {
