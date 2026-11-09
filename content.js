@@ -27,6 +27,10 @@
     }
 
     const observer = new MutationObserver(function (mutations) {
+      if (isPostsScoreSorted) {
+        updatePostRanks();
+      }
+
       let shouldProcess = false;
 
       mutations.forEach(function (mutation) {
@@ -477,6 +481,8 @@
       sortButton.textContent = "unsort/score";
     }
 
+    updatePostRanks();
+
     if (progressIndicator) {
       progressIndicator.textContent = "✓";
       setTimeout(function () {
@@ -536,6 +542,14 @@
           score = Number.isNaN(parsedScore) ? -1 : parsedScore;
         }
 
+        const rankSpan = submissionRow.querySelector("span.rank");
+        if (rankSpan && !submissionRow.hasAttribute("data-original-rank")) {
+          submissionRow.setAttribute(
+            "data-original-rank",
+            rankSpan.textContent.trim()
+          );
+        }
+
         return {
           id: submissionRow.id,
           row: submissionRow,
@@ -564,6 +578,22 @@
 
     parent.insertBefore(fragment, insertionAnchor || null);
     positionPostSortControls();
+    updatePostRanks();
+  }
+
+  function updatePostRanks() {
+    const submissionRows = document.querySelectorAll("tr.athing.submission");
+    submissionRows.forEach(function (row) {
+      const rankSpan = row.querySelector("span.rank");
+      if (!rankSpan) return;
+
+      if (isPostsScoreSorted) {
+        const originalRank = row.getAttribute("data-original-rank");
+        if (originalRank && rankSpan.textContent !== originalRank) {
+          rankSpan.textContent = originalRank;
+        }
+      }
+    });
   }
 
   function findAllChildren(allComments, parentComment) {
