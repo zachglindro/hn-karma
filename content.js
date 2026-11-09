@@ -2,13 +2,11 @@
 // This script runs on Hacker News pages to display user karma next to usernames
 
 (function () {
-  // Counter to track pending karma requests
   let pendingKarmaRequests = 0;
   let allKarmaLoaded = false;
   let isPostsScoreSorted = false;
   let originalPostOrder = [];
 
-  // Wait for the page to load completely
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initializeKarmaDisplay);
   } else {
@@ -16,16 +14,16 @@
   }
 
   function initializeKarmaDisplay() {
+    processSubmissionAuthor();
     processComments();
     addPostSortButton();
 
-    if (allKarmaLoaded) {
+    if (allKarmaLoaded || pendingKarmaRequests === 0) {
       addSortButtons();
-    } else if (pendingKarmaRequests > 0) {
+    } else {
       showKarmaLoadingIndicator();
     }
 
-    // Set up MutationObserver to handle dynamically loaded comments
     const observer = new MutationObserver(function (mutations) {
       let shouldProcess = false;
 
@@ -33,31 +31,18 @@
         if (mutation.type === "childList") {
           mutation.addedNodes.forEach(function (node) {
             if (node.nodeType === 1) {
-              // Element node
               if (
                 node.classList &&
                 (node.classList.contains("comment") ||
                   node.classList.contains("comtr") ||
                   node.classList.contains("submission"))
               ) {
-                // Check if this is a top-level comment (indent="0")
-                const indentElement = node.querySelector
-                  ? node.querySelector('td.ind[indent="0"]')
-                  : null;
-                if (
-                  indentElement ||
-                  node.classList.contains("submission") ||
-                  (node.classList.contains("athing") &&
-                    node.classList.contains("submission"))
-                ) {
-                  shouldProcess = true;
-                }
+                shouldProcess = true;
               } else if (
                 node.querySelector &&
-                (node.querySelector('tr.athing.comtr td.ind[indent="0"]') ||
+                (node.querySelector("tr.athing.comtr") ||
                   node.querySelector("tr.athing.submission"))
               ) {
-                // Also check if the added node contains a top-level comment
                 shouldProcess = true;
               }
             }
@@ -67,65 +52,195 @@
 
       if (shouldProcess) {
         setTimeout(function () {
+          processSubmissionAuthor();
           processComments();
           addPostSortButton();
-        }, 100); // Small delay to ensure elements are fully loaded
-
-        if (allKarmaLoaded) {
-          setTimeout(addSortButtons, 150);
-        } else if (pendingKarmaRequests > 0) {
-          showKarmaLoadingIndicator();
-        }
+          if (allKarmaLoaded || pendingKarmaRequests === 0) {
+            addSortButtons();
+          }
+        }, 100);
       }
     });
 
-    // Start observing
     observer.observe(document.body, {
       childList: true,
       subtree: true,
     });
   }
 
-  // Function to show a loading indicator when karma is being fetched
+  function getUsernameFromLink(link) {
+    if (!link) return null;
+    try {
+      const url = new URL(link.href, window.location.origin);
+      return url.searchParams.get("id");
+    } catch {
+      return link.textContent.trim();
+    }
+  }
+
+  // Display karma for the post/story submitter
+  function processSubmissionAuthor() {
+    const postSubline = document.querySelector(".subtext span.subline");
+    if (!postSubline) return;
+
+    const userLink = postSubline.querySelector('a[href^="user?id="]');
+    if (!userLink || userLink.getAttribute("data-karma-checked")) return;
+
+    const username = getUsernameFromLink(userLink);
+    if (!username) return;
+
+    userLink.setAttribute("data-karma-checked", "true");
+
+    const karmaSpan = document.createElement("span");
+    karmaSpan.className = "hn-karma";
+    karmaSpan.style.marginLeft = "4px";
+    karmaSpan.style.fontSize = "0.9em";
+    karmaSpan.style.opacity = "0.8";
+    karmaSpan.textContent = "(...)";
+
+    userLink.parentNode.insertBefore(karmaSpan, userLink.nextSibling);
+
+    chrome.runtime.sendMessage(
+      { action: "getKarma", username: username },
+      function (response) {
+        if (response && response.karma !== null && response.karma !== undefined) {
+          karmaSpan.textContent = `(${response.karma})`;
+          userLink.setAttribute("data-karma", response.karma);
+        } else {
+          karmaSpan.style.display = "none";
+        }
+      }
+    );
+  }
+
+  function processComments() {
+    const topLevelUserLinks = [];
+    const childUserLinks = [];
+    const commentRows = document.querySelectorAll("tr.athing.comtr");
+
+    commentRows.forEach(function (row) {
+      // Find author link using href prefix instead of class
+      const userLink = row.querySelector('.comhead a[href^="user?id="]');
+      if (!userLink) return;
+
+      const indentElement = row.querySelector('td.ind[indent="0"]');
+      if (indentElement) {
+        topLevelUserLinks.push(userLink);
+      } else {
+        childUserLinks.push(userLink);
+      }
+    });
+
+    // Process top-level comments (automatic fetch)
+    topLevelUserLinks.forEach(function (userLink) {
+      const username = getUsernameFromLink(userLink);
+      if (!username || userLink.getAttribute("data-karma-checked")) return;
+
+      userLink.setAttribute("data-karma-checked", "true");
+      pendingKarmaRequests++;
+      allKarmaLoaded = false;
+
+      const karmaSpan = document.createElement("span");
+      karmaSpan.className = "hn-karma";
+      karmaSpan.style.marginLeft = "4px";
+      karmaSpan.style.fontSize = "0.9em";
+      karmaSpan.style.opacity = "0.8";
+      karmaSpan.textContent = "(...)";
+
+      userLink.parentNode.insertBefore(karmaSpan, userLink.nextSibling);
+
+      chrome.runtime.sendMessage(
+        { action: "getKarma", username: username },
+        function (response) {
+          if (response && response.karma !== null && response.karma !== undefined) {
+            karmaSpan.textContent = `(${response.karma})`;
+            userLink.setAttribute("data-karma", response.karma);
+          } else {
+            karmaSpan.style.display = "none";
+          }
+
+          pendingKarmaRequests--;
+          if (pendingKarmaRequests <= 0) {
+            allKarmaLoaded = true;
+            addSortButtons();
+          }
+        }
+      );
+    });
+
+    // Process child comments (click-to-load)
+    childUserLinks.forEach(function (userLink) {
+      const username = getUsernameFromLink(userLink);
+      if (!username || userLink.getAttribute("data-child-karma-checked")) return;
+
+      userLink.setAttribute("data-child-karma-checked", "true");
+
+      const loadButton = document.createElement("span");
+      loadButton.className = "hn-karma-load";
+      loadButton.style.marginLeft = "4px";
+      loadButton.style.fontSize = "0.9em";
+      loadButton.style.cursor = "pointer";
+      loadButton.style.color = "#828282";
+      loadButton.style.textDecoration = "underline";
+      loadButton.textContent = "(load)";
+
+      loadButton.addEventListener("click", function (event) {
+        event.preventDefault();
+        loadButton.textContent = "(...)";
+        loadButton.style.cursor = "default";
+        loadButton.style.textDecoration = "none";
+
+        chrome.runtime.sendMessage(
+          { action: "getKarma", username: username },
+          function (response) {
+            if (response && response.karma !== null && response.karma !== undefined) {
+              loadButton.textContent = `(${response.karma})`;
+              loadButton.style.opacity = "0.8";
+              userLink.setAttribute("data-karma", response.karma);
+            } else {
+              loadButton.textContent = "(no data)";
+              loadButton.style.opacity = "0.5";
+            }
+          }
+        );
+      });
+
+      userLink.parentNode.insertBefore(loadButton, userLink.nextSibling);
+    });
+
+    if (topLevelUserLinks.length === 0 || pendingKarmaRequests === 0) {
+      allKarmaLoaded = true;
+      addSortButtons();
+    }
+  }
+
   function showKarmaLoadingIndicator() {
     const allLinks = document.querySelectorAll(".subtext span.subline a");
-    let commentsLink = null;
-
-    // Find the link that contains "comment" in its text content (e.g., "15 comments", "17 comments")
-    for (let link of allLinks) {
-      if (link.textContent.includes("comment")) {
-        commentsLink = link;
-        break;
-      }
-    }
+    const commentsLink = Array.from(allLinks).find((link) =>
+      /comment|discuss/i.test(link.textContent || "")
+    );
 
     if (commentsLink) {
       let loadingIndicator = document.getElementById("karma-loading-indicator");
-
-      // Create a loading indicator if it doesn't exist
       if (!loadingIndicator) {
         loadingIndicator = document.createElement("span");
         loadingIndicator.id = "karma-loading-indicator";
         loadingIndicator.style.marginLeft = "4px";
         loadingIndicator.style.fontSize = "0.9em";
         loadingIndicator.style.color = "#828282";
-
         commentsLink.parentNode.insertBefore(
           loadingIndicator,
-          commentsLink.nextSibling,
+          commentsLink.nextSibling
         );
       }
 
       loadingIndicator.textContent = `(loading karma... ${pendingKarmaRequests})`;
 
-      // Remove the loading indicator when all karma is loaded
       const checkAndRemoveIndicator = setInterval(() => {
         if (allKarmaLoaded && pendingKarmaRequests <= 0) {
           clearInterval(checkAndRemoveIndicator);
           const indicator = document.getElementById("karma-loading-indicator");
-          if (indicator) {
-            indicator.remove();
-          }
+          if (indicator) indicator.remove();
         } else {
           const indicator = document.getElementById("karma-loading-indicator");
           if (indicator) {
@@ -142,23 +257,14 @@
   }
 
   function addCommentSortButton() {
-    if (!window.location.href.includes("item?id=")) {
-      return;
-    }
+    if (!window.location.href.includes("item?id=")) return;
 
     const allLinks = document.querySelectorAll(".subtext span.subline a");
-    let commentsLink = null;
-
-    // Find the link that contains "comment" in its text content (e.g., "15 comments", "17 comments")
-    for (let link of allLinks) {
-      if (link.textContent.includes("comment")) {
-        commentsLink = link;
-        break;
-      }
-    }
+    const commentsLink = Array.from(allLinks).find((link) =>
+      /comment|discuss/i.test(link.textContent || "")
+    );
 
     if (commentsLink && !document.getElementById("karma-sort-btn")) {
-      // Create the sort button
       const sortButton = document.createElement("a");
       sortButton.id = "karma-sort-btn";
       sortButton.href = "#";
@@ -169,7 +275,6 @@
       commentsLink.parentNode.insertBefore(separator, commentsLink.nextSibling);
       commentsLink.parentNode.insertBefore(sortButton, separator.nextSibling);
 
-      // Create progress indicator element
       const progressIndicator = document.createElement("span");
       progressIndicator.id = "karma-sort-progress";
       progressIndicator.style.marginLeft = "4px";
@@ -177,55 +282,39 @@
       progressIndicator.style.display = "none";
       commentsLink.parentNode.insertBefore(
         progressIndicator,
-        sortButton.nextSibling,
+        sortButton.nextSibling
       );
 
-      // Add click event to sort comments by karma
       sortButton.addEventListener("click", function (e) {
         e.preventDefault();
-
-        const progressIndicator = document.getElementById(
-          "karma-sort-progress",
-        );
         if (progressIndicator) {
           progressIndicator.style.display = "inline";
-          progressIndicator.textContent = "(0%)";
+          progressIndicator.textContent = "(...)";
         }
-
         sortCommentsByKarma(progressIndicator);
       });
     }
   }
 
   function addPostSortButton() {
-    if (window.location.href.includes("item?id=")) {
-      return;
-    }
+    // Only applies to frontpage / submission list pages
+    if (window.location.href.includes("item?id=")) return;
 
-    const existingControls = document.getElementById(
-      "score-post-sort-controls",
-    );
+    const existingControls = document.getElementById("score-post-sort-controls");
     if (existingControls) {
       positionPostSortControls();
       return;
     }
 
     const firstPostSubline = document.querySelector(
-      "tr.athing.submission + tr .subtext .subline",
+      "tr.athing.submission + tr .subtext .subline"
     );
-    if (!firstPostSubline) {
-      return;
-    }
+    if (!firstPostSubline) return;
 
-    const firstCommentsLink = Array.from(
-      firstPostSubline.querySelectorAll("a"),
-    ).find(function (link) {
-      return /comment|discuss/i.test(link.textContent || "");
-    });
-
-    if (!firstCommentsLink) {
-      return;
-    }
+    const firstCommentsLink = Array.from(firstPostSubline.querySelectorAll("a")).find(
+      (link) => /comment|discuss/i.test(link.textContent || "")
+    );
+    if (!firstCommentsLink) return;
 
     const controls = document.createElement("span");
     controls.id = "score-post-sort-controls";
@@ -247,21 +336,15 @@
     progressIndicator.style.display = "none";
     controls.appendChild(progressIndicator);
 
-    firstCommentsLink.parentNode.insertBefore(
-      controls,
-      firstCommentsLink.nextSibling,
-    );
+    firstCommentsLink.parentNode.insertBefore(controls, firstCommentsLink.nextSibling);
 
     sortButton.addEventListener("click", function (e) {
       e.preventDefault();
-
-      const indicator = document.getElementById("score-post-sort-progress");
-      if (indicator) {
-        indicator.style.display = "inline";
-        indicator.textContent = "(...)";
+      if (progressIndicator) {
+        progressIndicator.style.display = "inline";
+        progressIndicator.textContent = "(...)";
       }
-
-      togglePostSortByScore(indicator, sortButton);
+      togglePostSortByScore(progressIndicator, sortButton);
     });
 
     positionPostSortControls();
@@ -269,235 +352,63 @@
 
   function positionPostSortControls() {
     const controls = document.getElementById("score-post-sort-controls");
-    if (!controls) {
-      return;
-    }
+    if (!controls) return;
 
     const firstPostSubline = document.querySelector(
-      "tr.athing.submission + tr .subtext .subline",
+      "tr.athing.submission + tr .subtext .subline"
     );
-    if (!firstPostSubline) {
-      return;
-    }
+    if (!firstPostSubline) return;
 
-    const firstCommentsLink = Array.from(
-      firstPostSubline.querySelectorAll("a"),
-    ).find(function (link) {
-      return /comment|discuss/i.test(link.textContent || "");
-    });
-
-    if (!firstCommentsLink) {
-      return;
-    }
-
-    firstCommentsLink.parentNode.insertBefore(
-      controls,
-      firstCommentsLink.nextSibling,
+    const firstCommentsLink = Array.from(firstPostSubline.querySelectorAll("a")).find(
+      (link) => /comment|discuss/i.test(link.textContent || "")
     );
+    if (!firstCommentsLink) return;
+
+    firstCommentsLink.parentNode.insertBefore(controls, firstCommentsLink.nextSibling);
   }
 
-  function processComments() {
-    const topLevelUserLinks = [];
-    const childUserLinks = [];
-
-    const commentRows = document.querySelectorAll("tr.athing.comtr");
-
-    commentRows.forEach(function (row) {
-      const indentElement = row.querySelector('td.ind[indent="0"]');
-
-      if (indentElement) {
-        // This is a top-level comment, get the username
-        const userLink = row.querySelector("a.hnuser");
-        if (userLink) {
-          topLevelUserLinks.push(userLink);
-        }
-      } else {
-        // This is a child comment, get the username
-        const userLink = row.querySelector("a.hnuser");
-        if (userLink) {
-          childUserLinks.push(userLink);
-        }
-      }
-    });
-
-    // Process top-level comments
-    topLevelUserLinks.forEach(function (userLink) {
-      const username = userLink.textContent.trim();
-
-      if (!username || userLink.getAttribute("data-karma-checked")) {
-        return;
-      }
-
-      userLink.setAttribute("data-karma-checked", "true");
-
-      pendingKarmaRequests++;
-      allKarmaLoaded = false;
-
-      // Create a temporary element to hold the karma info
-      // We'll update it later when we get the karma data
-      const karmaSpan = document.createElement("span");
-      karmaSpan.className = "hn-karma";
-      karmaSpan.style.marginLeft = "4px";
-      karmaSpan.style.fontSize = "0.9em";
-      karmaSpan.style.opacity = "0.8";
-      karmaSpan.textContent = `(${username}'s karma)`; // Placeholder text
-
-      userLink.parentNode.insertBefore(karmaSpan, userLink.nextSibling);
-
-      // Request karma data from background script
-      chrome.runtime.sendMessage(
-        {
-          action: "getKarma",
-          username: username,
-        },
-        function (response) {
-          if (response && response.karma !== undefined) {
-            karmaSpan.textContent = `(${response.karma})`;
-            userLink.setAttribute("data-karma", response.karma);
-          } else {
-            karmaSpan.style.display = "none";
-          }
-
-          pendingKarmaRequests--;
-          if (pendingKarmaRequests <= 0) {
-            allKarmaLoaded = true;
-            addSortButtons();
-          }
-        },
-      );
-    });
-
-    // Process child comments
-    childUserLinks.forEach(function (userLink) {
-      const username = userLink.textContent.trim();
-      if (!username || userLink.getAttribute("data-child-karma-checked")) {
-        return;
-      }
-
-      userLink.setAttribute("data-child-karma-checked", "true");
-
-      // Create a clickable "load" button to fetch karma
-      const loadButton = document.createElement("span");
-      loadButton.className = "hn-karma-load";
-      loadButton.style.marginLeft = "4px";
-      loadButton.style.fontSize = "0.9em";
-      loadButton.style.cursor = "pointer";
-      loadButton.style.color = "#828282";
-      loadButton.style.textDecoration = "underline";
-      loadButton.textContent = "(load)";
-
-      // Add click event to fetch and display karma
-      loadButton.addEventListener("click", function (event) {
-        event.preventDefault();
-
-        // Show loading indicator
-        loadButton.textContent = "(...)";
-        loadButton.style.cursor = "default";
-        loadButton.style.textDecoration = "none";
-
-        pendingKarmaRequests++;
-        allKarmaLoaded = false;
-
-        // Request karma data from background script
-        chrome.runtime.sendMessage(
-          {
-            action: "getKarma",
-            username: username,
-          },
-          function (response) {
-            if (response && response.karma !== undefined) {
-              // Update the button with the actual karma value
-              loadButton.textContent = `(${response.karma})`;
-              loadButton.style.opacity = "0.8";
-              loadButton.style.color = "#828282";
-
-              // Store karma value in the user link for later sorting
-              userLink.setAttribute("data-karma", response.karma);
-            } else {
-              loadButton.textContent = "(no data)";
-              loadButton.style.opacity = "0.5";
-            }
-
-            pendingKarmaRequests--;
-            if (pendingKarmaRequests <= 0) {
-              allKarmaLoaded = true;
-              addSortButtons();
-            }
-          },
-        );
-      });
-
-      userLink.parentNode.insertBefore(loadButton, userLink.nextSibling);
-    });
-  }
-
-  // Function to sort comments by karma
   function sortCommentsByKarma(progressIndicator) {
-    // First, ensure all karma values are loaded
     const commentRows = document.querySelectorAll("tr.athing.comtr");
-    const totalComments = commentRows.length;
-
-    commentRows.forEach(function (row) {
-      const userLink = row.querySelector("a.hnuser");
-      if (userLink) {
-        const karmaAttr = userLink.getAttribute("data-karma");
-      }
-    });
-
-    // Skip progress indicator and go directly to checkmark
-
-    // Collect all comments with their karma values and indentation levels
     const allComments = [];
 
     commentRows.forEach(function (row) {
-      const userLink = row.querySelector("a.hnuser");
-
+      const userLink = row.querySelector('.comhead a[href^="user?id="]');
       if (userLink) {
-        const karma = parseInt(userLink.getAttribute("data-karma")) || -1;
-
-        // Determine the indentation level
+        const karma = parseInt(userLink.getAttribute("data-karma"), 10) || -1;
         const indentCell = row.querySelector("td.ind");
         let indentValue = 0;
         if (indentCell) {
-          indentValue = parseInt(indentCell.getAttribute("indent") || "0");
+          indentValue = parseInt(indentCell.getAttribute("indent") || "0", 10);
         }
 
         allComments.push({
           element: row,
           karma: karma,
-          username: userLink.textContent.trim(),
           indent: indentValue,
           id: row.id,
         });
       }
     });
 
-    // Group comments by parent-child relationships
-    const topComments = allComments.filter((comment) => comment.indent === 0);
+    const topComments = allComments.filter((c) => c.indent === 0);
     topComments.sort((a, b) => b.karma - a.karma);
 
-    // Reorder the comments in the DOM
     const commentTree = document.querySelector(".comment-tree tbody");
     if (commentTree) {
       const fragment = document.createDocumentFragment();
-
       for (const topComment of topComments) {
         fragment.appendChild(topComment.element);
-
         const children = findAllChildren(allComments, topComment);
         for (const child of children) {
           fragment.appendChild(child.element);
         }
       }
-
       commentTree.innerHTML = "";
       commentTree.appendChild(fragment);
     }
 
     if (progressIndicator) {
       progressIndicator.textContent = "✓";
-
-      // Hide the indicator after a short delay
       setTimeout(() => {
         progressIndicator.style.display = "none";
       }, 2000);
@@ -525,46 +436,29 @@
 
   function sortPostsByScore() {
     const postGroups = getPostGroups();
-    if (!postGroups.length) {
-      return;
-    }
+    if (!postGroups.length) return;
 
     if (!originalPostOrder.length) {
-      originalPostOrder = postGroups.map(function (group) {
-        return group.id;
-      });
+      originalPostOrder = postGroups.map((g) => g.id);
     }
 
-    postGroups.sort(function (a, b) {
-      return b.score - a.score;
-    });
-
+    postGroups.sort((a, b) => b.score - a.score);
     applyPostOrder(postGroups);
   }
 
   function restoreOriginalPostOrder() {
-    if (!originalPostOrder.length) {
-      return;
-    }
+    if (!originalPostOrder.length) return;
 
     const postGroups = getPostGroups();
     const groupsById = new Map();
-
-    postGroups.forEach(function (group) {
-      groupsById.set(group.id, group);
-    });
+    postGroups.forEach((g) => groupsById.set(g.id, g));
 
     const orderedGroups = [];
-
-    originalPostOrder.forEach(function (id) {
+    originalPostOrder.forEach((id) => {
       if (groupsById.has(id)) {
         orderedGroups.push(groupsById.get(id));
         groupsById.delete(id);
       }
-    });
-
-    groupsById.forEach(function (group) {
-      orderedGroups.push(group);
     });
 
     applyPostOrder(orderedGroups);
@@ -572,23 +466,19 @@
 
   function getPostGroups() {
     const submissionRows = Array.from(
-      document.querySelectorAll("tr.athing.submission"),
+      document.querySelectorAll("tr.athing.submission")
     );
 
     return submissionRows
       .map(function (submissionRow) {
         const subtextRow = submissionRow.nextElementSibling;
-        const spacerCandidate = subtextRow
-          ? subtextRow.nextElementSibling
-          : null;
+        const spacerCandidate = subtextRow ? subtextRow.nextElementSibling : null;
         const spacerRow =
           spacerCandidate && spacerCandidate.classList.contains("spacer")
             ? spacerCandidate
             : null;
 
-        const scoreSpan = subtextRow
-          ? subtextRow.querySelector("span.score")
-          : null;
+        const scoreSpan = subtextRow ? subtextRow.querySelector("span.score") : null;
         let score = -1;
         if (scoreSpan) {
           const parsedScore = parseInt(scoreSpan.textContent, 10);
@@ -603,15 +493,11 @@
           score: score,
         };
       })
-      .filter(function (group) {
-        return !!group.subtextRow;
-      });
+      .filter((g) => !!g.subtextRow);
   }
 
   function applyPostOrder(postGroups) {
-    if (!postGroups.length) {
-      return;
-    }
+    if (!postGroups.length) return;
 
     const parent = postGroups[0].row.parentNode;
     const insertionAnchor = parent.querySelector("tr.morespace");
@@ -629,7 +515,6 @@
     positionPostSortControls();
   }
 
-  // Helper function to find all children of a given comment
   function findAllChildren(allComments, parentComment) {
     const children = [];
     const parentIndent = parentComment.indent;
@@ -639,14 +524,8 @@
 
     for (let i = parentIndex + 1; i < allComments.length; i++) {
       const current = allComments[i];
-
-      if (current.indent <= parentIndent) {
-        break;
-      }
-
-      if (current.indent === parentIndent + 1) {
-        children.push(current);
-      }
+      if (current.indent <= parentIndent) break;
+      children.push(current);
     }
 
     return children;
